@@ -40,7 +40,7 @@ func New(sessions *auth.Manager, eventsManager *events.Manager) imapbackend.Back
 	return &backend{
 		sessions:      sessions,
 		eventsManager: eventsManager,
-		updates:       make(chan imapbackend.Update, 50),
+		updates:       make(chan imapbackend.Update, 500),
 		users:         make(map[string]*user),
 	}
 }

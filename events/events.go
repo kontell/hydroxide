@@ -39,7 +39,11 @@ func (r *Receiver) receiveEvents() {
 		r.locker.Lock()
 		n := len(r.channels)
 		for _, ch := range r.channels {
-			ch <- event
+			select {
+			case ch <- event:
+			case <-time.After(10 * time.Second):
+				log.Println("dropping event: receiver too slow")
+			}
 		}
 		r.locker.Unlock()
 
@@ -55,7 +59,10 @@ func (r *Receiver) receiveEvents() {
 }
 
 func (r *Receiver) Poll() {
-	r.poll <- struct{}{}
+	select {
+	case r.poll <- struct{}{}:
+	default:
+	}
 }
 
 type Manager struct {

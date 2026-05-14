@@ -113,7 +113,7 @@ func newUser(be *backend, username string, c *protonmail.Client, privateKeys ope
 
 	done := make(chan struct{})
 	uu.done = done
-	ch := make(chan *protonmail.Event)
+	ch := make(chan *protonmail.Event, 20)
 	go uu.receiveEvents(be.updates, ch)
 	uu.eventsReceiver = be.eventsManager.Register(c, u.Name, ch, done)
 

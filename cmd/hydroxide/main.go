@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/ProtonMail/go-crypto/openpgp/armor"
@@ -45,6 +46,9 @@ func newClient() *protonmail.Client {
 		RootURL:    apiEndpoint,
 		AppVersion: appVersion,
 		Debug:      debug,
+		HTTPClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
 	}
 }
 
