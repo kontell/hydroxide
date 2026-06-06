@@ -3,6 +3,7 @@ package database
 import (
 	"encoding/json"
 	"errors"
+	"time"
 
 	bolt "go.etcd.io/bbolt"
 
@@ -230,7 +231,11 @@ func Open(filename string) (*User, error) {
 		return nil, err
 	}
 
-	db, err := bolt.Open(p, 0700, nil)
+	// Use a timeout so that if the database file is already locked
+	// (e.g. by another hydroxide instance, or a leaked handle), Open
+	// fails this login quickly instead of blocking forever while the
+	// caller holds the backend mutex.
+	db, err := bolt.Open(p, 0700, &bolt.Options{Timeout: 5 * time.Second})
 	if err != nil {
 		return nil, err
 	}

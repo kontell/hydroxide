@@ -108,6 +108,12 @@ func newUser(be *backend, username string, c *protonmail.Client, privateKeys ope
 	uu.db = db
 
 	if err := uu.initMailboxes(); err != nil {
+		// Avoid leaking the open database handle (and its exclusive
+		// file lock) when initialization fails. A leaked handle would
+		// make every later login for this user block forever in
+		// database.Open while holding the backend mutex, freezing all
+		// IMAP logins.
+		db.Close()
 		return nil, err
 	}
 
