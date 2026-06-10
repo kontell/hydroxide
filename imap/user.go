@@ -58,24 +58,64 @@ type user struct {
 }
 
 func getUser(be *backend, username string, c *protonmail.Client, privateKeys openpgp.EntityList) (*user, error) {
-	// TODO: logging a user in may take some time, find a way not to lock all
-	// other logins during this time
-	be.Lock()
-	defer be.Unlock()
+	// newUser() can take a long time: it makes several ProtonMail API calls and
+	// opens the user's database. We must not hold the backend lock across it, or
+	// a single slow login blocks logins for every other user (and all logouts).
+	// Instead we only hold the lock long enough to consult the maps, and use a
+	// per-user pending entry so concurrent logins for the same user share a
+	// single newUser() call rather than racing to create duplicate handles.
+	for {
+		be.Lock()
 
-	if u, ok := be.users[username]; ok {
-		u.Lock()
-		u.numClients++
-		u.Unlock()
-		return u, nil
-	} else {
-		u, err := newUser(be, username, c, privateKeys)
-		if err != nil {
-			return nil, err
+		// Already logged in: just register another client.
+		if u, ok := be.users[username]; ok {
+			u.Lock()
+			u.numClients++
+			u.Unlock()
+			be.Unlock()
+			return u, nil
 		}
 
-		be.users[username] = u
-		return u, nil
+		// Another goroutine is already logging this user in. Wait for it
+		// without holding the backend lock, then re-evaluate.
+		if p, ok := be.pending[username]; ok {
+			be.Unlock()
+			<-p.done
+			if p.err != nil {
+				return nil, p.err
+			}
+			// Loaded successfully: loop to take the fast path above and
+			// register this additional client. If it was logged out again in
+			// the meantime, the next pass makes us the loader instead.
+			continue
+		}
+
+		// We are the first to log this user in. Publish a pending entry so
+		// concurrent logins for the same user wait for us, then release the
+		// backend lock so unrelated logins are not blocked by our I/O.
+		p := &pendingLogin{done: make(chan struct{})}
+		be.pending[username] = p
+		be.Unlock()
+
+		// Run newUser without the backend lock. The deferred cleanup always
+		// clears the pending entry and wakes waiters, even if newUser panics,
+		// so a failed login can never permanently wedge this user.
+		u, err := func() (u *user, err error) {
+			defer func() {
+				be.Lock()
+				delete(be.pending, username)
+				if err == nil && u != nil {
+					be.users[username] = u
+				}
+				be.Unlock()
+
+				p.err = err
+				close(p.done)
+			}()
+			return newUser(be, username, c, privateKeys)
+		}()
+
+		return u, err
 	}
 }
 
